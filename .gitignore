@@ -1,0 +1,11 @@
+# python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# AWS deployment
+*.zip
+
+# local env
+.env

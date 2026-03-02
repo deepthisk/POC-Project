@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the Analytics Agent POC.  Creates a Lambda
+  function and a simple HTTP API Gateway front end.  Environment variables can
+  be overridden via Parameters.
+
+Parameters:
+  AthenaDatabase:
+    Type: String
+    Default: default
+  AthenaOutputS3:
+    Type: String
+    Default: s3://my-athena-results/
+  BedrockModel:
+    Type: String
+    Default: claude-sonnet-3.6
+  QuickSightAccountId:
+    Type: String
+    Default: ""
+  QuickSightDashboardId:
+    Type: String
+    Default: ""
+
+Resources:
+  AgentExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonAthenaFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        # You may need to add permissions for Bedrock or other services
+
+  AnalyticsAgentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt AgentExecutionRole.Arn
+      Code:
+        ZipFile: |
+          # use inline code for quick POC or point to S3/ArtifactBucket
+          import json
+          def lambda_handler(event, context):
+              return {"statusCode":200,"body":"stub"}
+      Environment:
+        Variables:
+          ATHENA_DATABASE: !Ref AthenaDatabase
+          ATHENA_OUTPUT_S3: !Ref AthenaOutputS3
+          BEDROCK_MODEL: !Ref BedrockModel
+          # QuickSight embed settings (fill with your own values)
+          QUICKSIGHT_ACCOUNT_ID: !Ref QuickSightAccountId
+          QUICKSIGHT_DASHBOARD_ID: !Ref QuickSightDashboardId
+
+  AgentApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: AnalyticsAgentApi
+      ProtocolType: HTTP
+
+  AgentIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AgentApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AnalyticsAgentFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  AgentRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AgentApi
+      RouteKey: "POST /query"
+      Target: !Sub "integrations/${AgentIntegration}"
+
+  AgentStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref AgentApi
+      AutoDeploy: true
+      StageName: prod
+
+Outputs:
+  ApiEndpoint:
+    Description: "URL of the HTTP API"
+    Value: !Sub "https://${AgentApi}.execute-api.${AWS::Region}.amazonaws.com/prod/query"
